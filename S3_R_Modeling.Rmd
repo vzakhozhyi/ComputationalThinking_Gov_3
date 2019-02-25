@@ -1,0 +1,401 @@
+<br> 
+<center><img src="http://i.imgur.com/sSaOozN.png" width="500"></center>
+
+## Course: Computational Thinking for Governance Analytics
+
+### Prof. José Manuel Magallanes, PhD 
+
+_____
+
+# Session 3:  [Modeling Governance Complexity in R](https://github.com/EvansDataScience/ComputationalThinking_Gov_3)
+
+<a id='head'></a> 
+
+In this session, we will learn some basics on modeling, namely two important techniques:
+
+1. [Linear Regression](#part1)
+2. [Logistic Regression](#part2)
+
+____
+
+This session will work with a collection of indexes:
+
+```{r, eval=TRUE}
+link='https://raw.githubusercontent.com/EvansDataScience/data/master/allIndexes.csv'
+indexes=read.csv(link,stringsAsFactors = F)
+
+names(indexes)
+```
+
+* The _corruptionIndex_ is the _Corruption Perception Index_ (CPI) produced by [Transparency International](https://www.transparency.org/).
+
+* The _scoreEconomy_ is the _Economic Freedom Index_ (EFI) produced by [Fraser Institute](https://www.fraserinstitute.org).
+
+* The _environment_ and _environmentCat_ represent the _Environment Performance Index_ (EPI) produced by [Yale University and Columbia University in collaboration with the World Economic Forum](https://epi.envirocenter.yale.edu/). The latter is a dichotomic variable.
+
+* The _scorepress_ and _presscat_ are data about the _World Press Freedom Index_ (WPFI) produced by [Reporters Without Borders](https://rsf.org/en/world-press-freedom-index). The latter is a ordinal variable.
+
+
+
+We can check descriptives:
+
+```{r, eval=TRUE}
+summary(indexes)
+```
+
+And data types:
+
+```{r, eval=TRUE}
+str(indexes,width=70,strict.width='cut')
+```
+
+Keep in mind thta the last two ones are categorical. *Presscat* is a categorical representation of the press freedom index:
+
+```{r, eval=TRUE}
+table(indexes$presscat)
+```
+
+And *enviromentCat* is a representation of environment performance index:
+```{r, eval=TRUE}
+table(indexes$environmentCat)
+```
+
+The former is ordinal (the higher the better), while the second is a dichotomous variable (good or bad performance).
+_____
+
+<a id='part1'></a>
+
+
+
+## Linear Regression
+
+You need a linear regression when your variable of interest is continuous (a measurement). In this case, I will simply use the EPI as my *explanandum* (Y):
+
+```{r, eval=TRUE}
+hist(indexes$environment)
+```
+
+The other variables in the set could be used as our *explanans* (X), that is, we should have enough theorical or experiential background to hypothesize that the behavior of Y is affected by these X.
+
+You are comfortable with  **Linear Regression** when you can verify that each variable in X has a linear relationship with Y:
+
+```{r, eval=TRUE}
+explanans=names(indexes)[c(3:5)]
+
+for (x in explanans){
+    p=cor.test(indexes[,x],indexes$environment)
+    
+    if(p$p.value<0.05){
+        messageYES=paste('environment index is correlated with',x)
+        print(messageYES)
+        
+    }else{
+        messageNO=paste('environment index is NOT correlated with',x)
+        print(messageNO)
+    }
+    
+}
+
+```
+
+The level of correlation is moderate to low. 
+
+It would be great if the correlation between each pair of variables in X were not high:
+
+```{r, eval=TRUE}
+cor(indexes[explanans])
+```
+
+Most correlations are moderate; however the correlation between corruption and economy are close to be considered high (traditionally it is high when you reach +/- 0.7).
+
+
+
+Given the above exploration, we can go and request a linear regression model:
+
+
+```{r, eval=TRUE}
+
+LinRegEPI = lm(environment ~ corruptionIndex + scoreEconomy + scorepress, data = indexes)
+
+```
+
+That was it! I just told R that the Y (*environment*) is to be regressed (**~**) by all those X variables (*corruptionIndex + scoreEconomy + scorepressOK*).
+
+You can see the datailed result using:
+```{r, eval=TRUE}
+summary(LinRegEPI)
+```
+
+However, we tend to look for a couple of key indicators:
+
+* How much is each variable in X influencing Y?
+
+The sign of the coefficient of a X indicates if it affects Y in direct or inverse way. The absolute value of the coefficient would suggest which impacts more. You should only be confident of these effects if the column _Pr(>|t|)_ is TRUE.
+
+
+* What measure should I use to evaluate the regression as a whole?
+
+```{r, eval=TRUE}
+summary(LinRegEPI)$adj.r.squared # from 0 to 1, the closer to 1 the better.
+```
+
+The way to evaluate a regression does not end here. There may be several issues affecting these results:
+
+* **Residuals**, the difference between what this model predicts Y is ( _Yp_ ), and the actual value of Y, should  be closed to a normal distribution. for that we need to see them along the vertical of the __qqplot__.
+
+```{r, eval=TRUE}
+# normality of residuals?
+library(car)
+qqPlot(LinRegEPI, main="QQ Plot")
+```
+
+
+* **Multicollinearity**, the predictors are no highly correlated:
+
+```{r, eval=TRUE}
+# collinearity?
+vif(LinRegEPI) > 4 # problem if some are TRUE
+```
+
+* **Heteroskedasticity**, if the bivariate relationship between the _Residuals_ and the _Yp_ is not constant. That is, the error variance changes with the level of the response, which will happen if the output of the _ncvTest_ function is non-significant.
+
+```{r, eval=TRUE}
+# Heteroskedastic?
+ncvTest(LinRegEPI)$p<0.05
+```
+
+* **Outliers**. Outliers are always present. In practice, you can not solve any issue if you are not controlling the presence of outliers, if they could be controlled:
+
+```{r, eval=TRUE}
+influencePlot(LinRegEPI,	
+              id.method="noteworthy",
+              id.n=2, 
+              main="Identifying outliers", 
+              sub="Circle size is proportial to Cook's Distance")
+```
+
+When outliers are prominent, you could ask for _robust regression_:
+```{r, eval=TRUE}
+
+library(MASS)
+LinRegEPI_R = rlm(environment ~ corruptionIndex + scoreEconomy + scorepress, 
+                data = indexes)
+
+summary(LinRegEPI_R)
+```
+
+You don't see a p.value now, but you can consider significant the coefficients whose _t value_ (in absolute terms) is greater than two.
+
+Above, you have corrected coefficients. The same coefficients kept significant. The directions are kept too. The effect  of econonomy (EFI) has increased, while the intercept (value when all the rest is zero) has decreased. 
+
+
+You can also omit the outliers and see the effect on the regresssion:
+```{r, eval=TRUE}
+outCases=c(40,64,127)
+indexes[outCases,]
+```
+
+
+```{r, eval=TRUE}
+
+LinRegEPI_OUT = lm(environment ~ corruptionIndex + scoreEconomy + scorepress, data = indexes[-outCases,])
+
+summary(LinRegEPI_OUT)
+```
+
+Notice the new Adjusted R-squared.
+
+Finally in this section, let me show you now what to do when one of the X variables is a category:
+
+* Set the reference for categorical variable. When one of your X variables is categorical, the result will show a coefficient for every level of the category but one. The one missing is the reference. It is needed because the coefficient informs the effect of a particular level when compared to the reference.
+
+```{r, eval=TRUE}
+# The function 'relevel' CAN NOT accept ordinals. 
+# This is why I did not set it as ordinal before.
+# This variable has 3 levels. Let's choose '1' as the reference.
+indexes$presscat=as.factor(indexes$presscat)
+indexes$presscat <- relevel(indexes$presscat, ref = 1)
+```
+
+* Write the equation of the regression as usual: 
+```{r, eval=TRUE}
+
+LinRegEPI_catX <- lm(environment ~ corruptionIndex + scoreEconomy + presscat,data = indexes)
+
+summary(LinRegEPI_catX)
+```
+
+The result is telling you that the change from category 1 to category 2 does not have effect. The same applies for the change from 1 to 3 (from 2 to 3 is not informed). 
+
+
+
+
+[Go to beginning.](#head)
+
+_____
+
+<a id='part2'></a>
+
+## Logistic Regression
+
+You need a logistic regression when your variable of interest is categorical. In this case, I will simply use the categorical version of EPI as my *explanandum* (Y):
+
+```{r, eval=TRUE}
+barplot(table(indexes$environmentCat))
+```
+
+Before, the linear regression model computed the coefficients of X so that we predict the value of Y, being those continuous variables. In this case, having an dependent variable with only two values, '0' and '1', in Y, we will use a _binary logistic regression_. Then,  the model will instead help you see which of the X variables will increase the 'odds' of getting a '1'. 
+
+The way to request this model is very similar to linear regression:
+
+```{r, eval=TRUE}
+
+# function 'glm' !
+LogitEPI_a = glm(environmentCat ~ corruptionIndex + scoreEconomy, 
+                   data = indexes,
+                   family = binomial())
+
+# see full results: 
+summary(LogitEPI_a)
+```
+
+Instead of the Adjusted RSquared, the GLM function offers the Akaike Information Criterion (AIC) as a _relative_ measure of fitness. If you had two models, the smaller the AIC signals the best one of the two compared. Let's make another model:
+
+```{r, eval=TRUE}
+# remember that presscat is factor
+LogitEPI_b =glm(environmentCat ~ corruptionIndex + scoreEconomy + presscat, 
+                   data = indexes,
+                   family = binomial())
+summary(LogitEPI_b)
+```
+
+Now use the AIC:
+
+```{r, eval=TRUE}
+if (LogitEPI_a$aic < LogitEPI_b$aic){
+    print("model 'a' is better")
+}else{print("model 'b' is better")}
+```
+
+* How much is each variable in X influencing Y?
+
+The coefficients computed are not directly interpretable, we need to exponentiate them:
+
+```{r, eval=TRUE}
+#getting coefficients
+coeffsa=coef(summary(LogitEPI_a))
+coeffsb=coef(summary(LogitEPI_b))
+```
+
+This is what you get for model a:
+```{r, eval=TRUE}
+data.frame(CoefficientExp=exp(coeffsa[,1]),Significant=coeffsa[,4]<0.05)
+```
+
+This is what you get for model b:
+```{r, eval=TRUE}
+data.frame(CoefficientExp=exp(coeffsb[,1]),Significant=coeffsb[,4]<0.05)
+```
+
+
+Exponentiating the resulting coefficients from the model is the first step to give an adequate interpretation. From there, you know there is a direct effect (increases the odds of Y=1) if the coefficient is greater than _one_, and an inverse effect if less than _one_, while its closeness to _1_ would mean no effect. As before, we should be confident of a coefficient value if this were significant. Then, only corruption has a direct effect on the odds of Y=1.
+
+Keep in mind that if the coefficient is categorical, the increase or decrease of the odds depends on what level of the category is the reference. In the case above, _presscat2_ decreases the odds of Y=1 respect to _presscat1_.
+
+
+An easier way to interpret those values, as the effect on the probability of ocurrence of the event **1** (that the environment index is OK), is by computing the marginal values:
+
+
+```{r, eval=TRUE}
+library(margins)
+margins_LogitEPI_a = margins(LogitEPI_a) 
+
+marginalSummary=summary(margins_LogitEPI_a)
+
+# just to see the results better:
+
+data.frame(coeff=round(marginalSummary$AME,3),
+           lower=round(marginalSummary$lower,3),
+           upper=round(marginalSummary$upper,3),
+           sig=marginalSummary$p<0.05)
+
+```
+
+Only doing better in corruption policies helps reach good environmental policies, the probability increases on average in 1.2% for each increase in one in the corruption index.
+
+We can have a basic R plot:
+
+```{r, eval=TRUE}
+plot(margins_LogitEPI_a)
+```
+
+
+
+The last plot clarifies why the scoreEconomy index has no signifcant effect, even though its coefficient has an avera value higher than the corruption index.
+
+* Do I have a good logistic model?
+
+The critical way to evaluate our models is by understanding the **confusion matrix*.
+
+The confusion matrix requires two inputs, the actual values and the values predicted by the model:
+```{r, eval=TRUE}
+actualValues=indexes$environmentCat
+predictedValues=predict(LogitEPI_a, type = 'response')
+```
+
+Using the values above:
+```{r, eval=TRUE}
+library(InformationValue)
+
+cm=confusionMatrix(actualValues, predictedValues)
+
+# adding names to cm
+row.names(cm)=c('PredictedNegative','PredictedPositive')
+colnames(cm)=c('ActualNegative','ActualPositive')
+
+# then:
+cm
+```
+From the table above, we know that the model predicted well 47 zeros and 51 ones,  thats is 98 matches out of 129. So, we made 31 mistakes, which is interpreted as the misclassification error rate:
+```{r, eval=TRUE}
+31/129
+misClassError(actualValues, predictedValues)
+```
+
+Another key concept in evaluating this model is the ROC curve:
+```{r, eval=TRUE}
+plotROC(actualValues, predictedValues)
+```
+
+The better the model predicts, the more this curve will expand towards the left top corner. You can also see the value of the _area under the curve_ (AUROC). The most the AUROC can be be is 1. The model is worthless if AUROC is 0.5, when the border of the curve is close to the diagonal (from bottom left to top rigth).
+
+Notice the labels **sensitivity** and **specificity**. These are important concepts that can be used in the logistic regression context. They are build upon the following concepts:
+```{r, eval=TRUE}
+TruePositive=cm['PredictedPositive','ActualPositive']
+TrueNegative=cm['PredictedNegative','ActualNegative']
+FalsePositive=cm['PredictedPositive','ActualNegative']
+FalseNegative=cm['PredictedNegative','ActualPositive']
+```
+
+
+Sensitivity is the true positive rate (TPR), that is, the probability of a positive prediction given that the case was positive.
+
+```{r, eval=TRUE}
+# TruePositive/(TruePositive+FalseNegative)
+sensitivity(actualValues, predictedValues)
+```
+
+Specificity is the false positive rate (FPR), that is, the probability of a negative prediction given that the case was negative.
+
+```{r, eval=TRUE}
+# TrueNegative/(TrueNegative + FalsePositive)
+specificity(actualValues, predictedValues)
+```
+
+In general, having both rates with high values make for a more reliable model. The interpretation of these values needs to be contextualized according to the decision-making situation. 
+
+_____
+
+* [Go to beginning.](#head)
+* [Go to Course schedule](https://evansdatascience.github.io/GovernanceAnalytics/)
+
